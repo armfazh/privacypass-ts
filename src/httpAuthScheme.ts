@@ -4,9 +4,9 @@
 import { base64url } from 'rfc4648';
 import { joinAll } from './util.js';
 import { parseWWWAuthenticate } from './rfc9110.js';
-import { getIssuerUrl } from './issuance.js';
-import { Client, TokenResponse } from './pubVerifToken.js';
 
+// Entries of the Privacy Pass Token Type Registry
+// https://datatracker.ietf.org/doc/html/draft-ietf-privacypass-auth-scheme-12#name-token-type-registry
 export interface TokenTypeEntry {
     name: string;
     value: number;
@@ -325,7 +325,7 @@ export class TokenPayload {
     }
 }
 
-export class Token {
+export abstract class Token {
     // This class represents the Token structure (composed by a TokenPayload and an authenticator).
     //
     // struct {
@@ -346,7 +346,11 @@ export class Token {
         }
     }
 
-    static deserialize(tokenTypeEntry: TokenTypeEntry, bytes: Uint8Array): Token {
+    protected static deserializeWithType<subClass extends Token>(
+        subClassCtor: { new (..._: ConstructorParameters<typeof Token>): subClass },
+        tokenTypeEntry: TokenTypeEntry,
+        bytes: Uint8Array,
+    ): subClass {
         let offset = 0;
         const input = new DataView(bytes.buffer);
 
@@ -358,30 +362,12 @@ export class Token {
         const authenticator = new Uint8Array(input.buffer.slice(offset, offset + len));
         offset += len;
 
-        return new Token(tokenTypeEntry, payload, authenticator);
-    }
-
-    static async fetch(pt: PrivateToken): Promise<Token> {
-        const issuerUrl = await getIssuerUrl(pt.challenge.issuerName);
-        const client = new Client();
-        const tokReq = await client.createTokenRequest(pt);
-        const tokRes = await tokReq.send(issuerUrl, TokenResponse);
-        const token = await client.finalize(tokRes);
-        return token;
+        return new subClassCtor(tokenTypeEntry, payload, authenticator);
     }
 
     serialize(): Uint8Array {
         return new Uint8Array(
             joinAll([this.payload.serialize().buffer, this.authenticator.buffer]),
-        );
-    }
-
-    verify(publicKey: CryptoKey): Promise<boolean> {
-        return crypto.subtle.verify(
-            { name: 'RSA-PSS', saltLength: 48 },
-            publicKey,
-            this.authenticator,
-            this.payload.serialize(),
         );
     }
 }

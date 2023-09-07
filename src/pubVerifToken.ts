@@ -5,9 +5,18 @@ import { SUITES } from '@cloudflare/blindrsa-ts';
 
 import { TokenTypeEntry, PrivateToken, TokenPayload, Token } from './httpAuthScheme.js';
 import { convertRSASSAPSSToEnc, joinAll } from './util.js';
-import { TokenResponseProtocol, TokenRequestProtocol, MediaType } from './issuance.js';
+import {
+    getIssuerUrl,
+    TokenResponseProtocol,
+    TokenRequestProtocol,
+    MediaType,
+} from './issuance.js';
 
-const BLIND_RSA: TokenTypeEntry = {
+// Token Type Entry Update:
+//  - Token Type Blind RSA (2048-bit)
+//
+// https://datatracker.ietf.org/doc/html/draft-ietf-privacypass-protocol-12#name-token-type-registry-updates
+export const BLIND_RSA: TokenTypeEntry = {
     value: 0x0002,
     name: 'Blind RSA (2048)',
     Nk: 256,
@@ -15,10 +24,6 @@ const BLIND_RSA: TokenTypeEntry = {
     publicVerifiable: true,
     publicMetadata: false,
     privateMetadata: false,
-} as const;
-
-export const TOKEN_TYPES = {
-    BLIND_RSA,
 } as const;
 
 export class TokenRequest implements TokenRequestProtocol {
@@ -122,6 +127,30 @@ export class TokenResponse implements TokenResponseProtocol {
     }
 }
 
+export class PublicVerifiableToken extends Token {
+    static async fetch(pt: PrivateToken): Promise<PublicVerifiableToken> {
+        const issuerUrl = await getIssuerUrl(pt.challenge.issuerName);
+        const client = new Client();
+        const tokReq = await client.createTokenRequest(pt);
+        const tokRes = await tokReq.send(issuerUrl, TokenResponse);
+        const token = await client.finalize(tokRes);
+        return token;
+    }
+
+    static deserialize(tokenTypeEntry: TokenTypeEntry, bytes: Uint8Array): PublicVerifiableToken {
+        return Token.deserializeWithType(PublicVerifiableToken, tokenTypeEntry, bytes);
+    }
+
+    verify(publicKeyIssuer: CryptoKey): Promise<boolean> {
+        return crypto.subtle.verify(
+            { name: 'RSA-PSS', saltLength: 48 },
+            publicKeyIssuer,
+            this.authenticator,
+            this.payload.serialize(),
+        );
+    }
+}
+
 export class Issuer {
     static readonly TYPE = BLIND_RSA;
 
@@ -175,7 +204,7 @@ export class Client {
         return tokenRequest;
     }
 
-    async finalize(t: TokenResponse): Promise<Token> {
+    async finalize(t: TokenResponse): Promise<PublicVerifiableToken> {
         if (!this.finData) {
             throw new Error('no token request was created yet.');
         }
@@ -187,7 +216,11 @@ export class Client {
             t.blindSig,
             this.finData.inv,
         );
-        const token = new Token(Client.TYPE, this.finData.tokenPayload, authenticator);
+        const token = new PublicVerifiableToken(
+            Client.TYPE,
+            this.finData.tokenPayload,
+            authenticator,
+        );
         this.finData = undefined;
 
         return token;

@@ -4,9 +4,18 @@
 import { jest } from '@jest/globals';
 import { base64 } from 'rfc4648';
 
-import { Client, Issuer, TokenRequest, TokenResponse, TOKEN_TYPES } from '../src/pubVerifToken.js';
-import { convertRSASSAPSSToEnc } from '../src/util.js';
-import { TokenChallenge, PrivateToken, Token } from '../src/httpAuthScheme.js';
+import {
+    Client,
+    Issuer,
+    TokenRequest,
+    TokenResponse,
+    PublicVerifiableToken,
+    util,
+    TokenChallenge,
+    PrivateToken,
+    TOKEN_TYPES,
+} from '../src/index.js';
+
 import { hexToUint8, testSerialize, testSerializeType, uint8ToHex } from './util.js';
 
 // https://datatracker.ietf.org/doc/html/draft-ietf-privacypass-protocol-11#name-test-vectors
@@ -31,7 +40,7 @@ async function keysFromVector(v: Vectors): Promise<[CryptoKeyPair, Uint8Array]> 
         ['sign'],
     );
 
-    const spkiEncoded = convertRSASSAPSSToEnc(hexToUint8(v.pkS));
+    const spkiEncoded = util.convertRSASSAPSSToEnc(hexToUint8(v.pkS));
     const publicKey = await crypto.subtle.importKey(
         'spki',
         spkiEncoded,
@@ -77,10 +86,10 @@ test.each(vectors)('PublicVerifiable-Vector-%#', async (v: Vectors) => {
     expect(uint8ToHex(tokResSer)).toBe(v.token_response);
 
     const token = await client.finalize(tokRes);
-    testSerializeType(TOKEN_TYPES.BLIND_RSA, Token, token);
+    testSerializeType(TOKEN_TYPES.BLIND_RSA, PublicVerifiableToken, token);
 
     const tokenSer = token.serialize();
     expect(uint8ToHex(tokenSer)).toBe(v.token);
 
-    expect(await token.verify(publicKey)).toBe(true);
+    expect(await token.verify(issuer.publicKey)).toBe(true);
 });
