@@ -5,9 +5,11 @@ import { base64url } from 'rfc4648';
 import { convertEncToRSASSAPSS, convertRSASSAPSSToEnc } from './util.js';
 import { PrivateToken, TokenTypeEntry } from './httpAuthScheme.js';
 import { BLIND_RSA, PublicVerifiableToken } from './pubVerifToken.js';
+import { VOPRF,PrivateVerifiableToken } from './privVerifToken.js';
 
 export const util = { convertEncToRSASSAPSS, convertRSASSAPSSToEnc };
 export * from './pubVerifToken.js';
+export * from './privVerifToken.js';
 export * from './httpAuthScheme.js';
 export * from './issuance.js';
 
@@ -17,6 +19,8 @@ export * from './issuance.js';
 //
 // https://datatracker.ietf.org/doc/html/draft-ietf-privacypass-protocol-12#name-token-type-registry-updates
 export const TOKEN_TYPES: Record<string, TokenTypeEntry> = {
+    // Token Type VOPRF (P-384, SHA-384)
+    VOPRF,
     // Token Type Blind RSA (2048-bit)
     BLIND_RSA,
 } as const;
@@ -31,6 +35,12 @@ export async function header_to_token(header: string): Promise<string | null> {
     const pt = privateTokens[0];
     const tokenType = pt.challenge.tokenType;
     switch (tokenType) {
+        case TOKEN_TYPES.VOPRF.value: {
+            const token = await PrivateVerifiableToken.fetch(pt);
+            const encodedToken = base64url.stringify(token.serialize());
+            return encodedToken;
+        }
+
         case TOKEN_TYPES.BLIND_RSA.value: {
             const token = await PublicVerifiableToken.fetch(pt);
             const encodedToken = base64url.stringify(token.serialize());
